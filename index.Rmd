@@ -10,13 +10,84 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 ```{r}
-summary(cars)
+library(dplyr)
+library(caret)
+training <- read.csv("pml-training.csv", header=T)
+
+#clean data, ger rid of all columns with NA values.
+t <- tbl_df(training)
+name <- names(training)
+new_name <- c()
+for (item in name){
+    if (sum(is.na(training[,item])) == 0){
+        new_name <- c(new_name,item)
+    }
+}
+t  <- training[,new_name]
+t  <- select(t,-starts_with("kurtosis_"))
+t <- select(t, -starts_with("skewness_"))
+t <- select(t, -starts_with("max_"))
+t <- select(t, -starts_with("min_"))
+t <- select(t, -starts_with("amplitude"))
+
+set.seed(1346)
+train_control <- trainControl(method = "cv", number=10)
+
+name <- names(t)
+delete_name <- c("X", "user_name", "cvtd_timestamp", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window", "classe")
+predictors <- name[!name %in% delete_name]
+
+model <- train(y = t$classe, x=t[,predictors],  trControl = train_control, method = "rf")
+
+
+
+
+folds <- createFolds(y =training$classe, k =10, list=T,returnTrain=T)
+training1 <- training[folds[[1]],]
+validation1 <- training[-folds[[1]],]
+
 ```
 
-You can also embed plots, for example:
 
-```{r, echo=FALSE}
-plot(cars)
+for test data
+
+```{r}
+testing <- read.csv("pml-testing.csv",header=T)
+tesing <- testing[,new_name]
+testing  <- select(testing,-starts_with("kurtosis_"))
+testing <- select(testing, -starts_with("skewness_"))
+testing <- select(testing, -starts_with("max_"))
+testing <- select(testing, -starts_with("min_"))
+testing <- select(testing, -starts_with("amplitude"))
+
+predictions <- predict(model,testing[,predictors])
+confusionMatrix(predictions,testing$problem_id)
+
+testing$problem_id
+
+```
+
+
+
+
+
+```{r}
+t <- tbl_df(training1)
+name <- names(training1)
+new_name <- c()
+for (item in name){
+    if (sum(is.na(training1[,item])) == 0){
+        new_name <- c(new_name,item)
+    }
+}
+t  <- training1[,new_name]
+t  <- select(t,-starts_with("kurtosis_"))
+t <- select(t, -starts_with("skewness_"))
+t <- select(t, -starts_with("max_"))
+t <- select(t, -starts_with("min_"))
+t <- select(t, -starts_with("amplitude"))
+
+
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
