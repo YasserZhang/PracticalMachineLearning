@@ -1,18 +1,35 @@
 ---
-title: "Activity Prediction"
-author: "Ning Zhang"
-date: "December 23, 2015"
-output: html_document
+title: "Activity Quality Recognition"
 ---
 
+###Summary
+The project's goal is to predict the quality of a subject's excercise activity. The data used in the project are collected from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The training data can be downloaded [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv), testing data [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv). I train a random forest model based on the training data, which obtains accuracies no smaller than 0.995 and specificities no smaller than 0.999 in cross validation.
 
-```{r}
+###Data Description and Data Munging
+Researchers collected the dataset in the process of recording the qualities of weight lifting exercises conducted by six participants. According to data description on their [website](http://groupware.les.inf.puc-rio.br/har):
+
+> _"Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E)."_
+
+Clike [here](http://groupware.les.inf.puc-rio.br/har#ixzz3vXRI6iAm) to read more about the data collecting process.
+
+Next I load the training and testing data:
+```{r message = FALSE}
 library(dplyr)
 library(caret)
 training <- read.csv("pml-training.csv", header=T)
+testing <- read.csv("pml-testing.csv", header=T)
+```
 
-#clean data, ger rid of all columns with NA values.
-t <- tbl_df(training)
+The training dataset has a total of 19622 observation rows and 160 variable columns. 
+```{r}
+dim(training)
+```
+
+It contains 67 columns which record 1287472 "NA" values in total, and it also has other 33 columns whose inputs are left in blank. Deleting all of these columns, the training dataset is reduced to 60 columns.
+```{r}
+#calculate the sum of NA values
+sum(is.na(training))
+#get rid of all columns dominated by NA values
 name <- names(training)
 new_name <- c()
 for (item in name){
@@ -21,70 +38,87 @@ for (item in name){
     }
 }
 t  <- training[,new_name]
+#get rid of all columns whose inputs are left in blank
 t  <- select(t,-starts_with("kurtosis_"))
 t <- select(t, -starts_with("skewness_"))
 t <- select(t, -starts_with("max_"))
 t <- select(t, -starts_with("min_"))
 t <- select(t, -starts_with("amplitude"))
+#dimension of the reduced dataset
+dim(t)
+```
 
+###Train a random forest model
+I split the traing dataset by setting its 80 percent for training and 20 percent for cross validation.
+```{r}
 set.seed(1346)
-train_control <- trainControl(method = "cv", number=10)
+trainIndex <- createDataPartition(t$classe, p = .8, list = FALSE, times = 1)
+train_set <- t[trainIndex,]
+validation_set <- t[-trainIndex,]
+```
 
+The task to recognize the quality of a specific action, which happens to be an observation unit in this case, is actually a case of supervised learning, and random forest training model will suit its purpose very well. So I train a Random Forest model on the training data with the help of caret package in R.
+
+```{r cache=TRUE, message = FALSE}
+#set a 10-fold cross validation in the process of training
+train_control <- trainControl(method = "cv", number=10)
+#pick out useful features out of the variable columns
 name <- names(t)
 delete_name <- c("X", "user_name", "cvtd_timestamp", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window", "classe")
 predictors <- name[!name %in% delete_name]
-
-model <- train(y = t$classe, x=t[,predictors],  trControl = train_control, method = "rf")
-
-
-
-
-folds <- createFolds(y =training$classe, k =10, list=T,returnTrain=T)
-training1 <- training[folds[[1]],]
-validation1 <- training[-folds[[1]],]
-
+#training the model
+model.rf <- train(y = train_set$classe, x=train_set[,predictors],
+               trControl = train_control, method = "rf")
 ```
 
-
-for test data
-
+###Checking Accuracy
+Now I have a Random Forest model for prediction, but first I want to see its performance on the training data.
 ```{r}
-testing <- read.csv("pml-testing.csv",header=T)
-tesing <- testing[,new_name]
-testing  <- select(testing,-starts_with("kurtosis_"))
-testing <- select(testing, -starts_with("skewness_"))
-testing <- select(testing, -starts_with("max_"))
-testing <- select(testing, -starts_with("min_"))
-testing <- select(testing, -starts_with("amplitude"))
-
-predictions <- predict(model,testing[,predictors])
-confusionMatrix(predictions,training$classe)
-
-predictions
-
+#in-sample error
+final_model <- model.rf$finalModel
+final_model$confusion
 ```
 
+From the confusion table, we can see the model performs pretty well as it gets a very low in sample errors in each of category from "A" to "E". Now I use the validation data to cross validate the model.
+```{r message = FALSE}
+#predict activities in the validation dataset
+predictions <- predict(model.rf,validation_set[,predictors])
+#build a confusion table
+confusionMatrix(predictions,validation_set$classe)$table
+```
+From the confusion table we can the model only made single-digit mistakes in classifying the observations in the validation dataset.
 
-
-
-
+The chart below shows the model's out of sample error on each class of action:
 ```{r}
-t <- tbl_df(training1)
-name <- names(training1)
-new_name <- c()
-for (item in name){
-    if (sum(is.na(training1[,item])) == 0){
-        new_name <- c(new_name,item)
-    }
+#calculate the out of sample errors on each of the six actions
+accuracy_table <- confusionMatrix(predictions,validation_set$classe)$byClass
+1 - accuracy_table[,8]
+```
+
+###Conclusion
+Finally, I test the final model on the test data which consists of 20 observation units.   
+Here are the predictions for the testing data.
+```{r}
+#prediction
+test_prediction <- predict(model.rf, testing[,predictors])
+test_prediction
+```
+
+I create answer files for submission to the class website.
+```{r}
+#create answer files for submission
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
 }
-t  <- training1[,new_name]
-t  <- select(t,-starts_with("kurtosis_"))
-t <- select(t, -starts_with("skewness_"))
-t <- select(t, -starts_with("max_"))
-t <- select(t, -starts_with("min_"))
-t <- select(t, -starts_with("amplitude"))
-
-
+#create answer files for submission
+pml_write_files(test_prediction)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+As a result, the predictions are correct on all of the 20 units .
+<br>  
+<br>  
+The End
